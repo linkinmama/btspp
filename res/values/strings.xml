@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">bluetooth spp</string>
+    <string name="bluetooth_state">bluetooth state</string>
+    <string name="btn_scan_title">scan bluetooth device</string>
+    <string name="btn_clear_title">clear</string>
+    <string name="btn_send_title">send</string>
+    <string name="warning">please turn on the bluetooth</string>
+</resources>
