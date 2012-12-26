@@ -6,4 +6,6 @@
     <string name="btn_clear_title">clear</string>
     <string name="btn_send_title">send</string>
     <string name="warning">请打开蓝牙！</string>
+    <string name="toggle_connect">连接</string>
+    <string name="toggle_disconnect">断开</string>    
 </resources>

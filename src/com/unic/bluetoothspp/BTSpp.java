@@ -9,20 +9,18 @@ import java.util.ArrayList;
 import java.util.UUID;
 
 import android.app.Activity;
-import android.app.AlertDialog.Builder;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
 import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.Cursor;
 import android.media.AudioManager;
-import android.media.MediaPlayer;
-import android.media.MediaPlayer.OnCompletionListener;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -32,11 +30,9 @@ import android.telephony.SignalStrength;
 import android.telephony.TelephonyManager;
 import android.text.format.Time;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.View;
-import android.widget.AdapterView;
-import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ArrayAdapter;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -50,7 +46,7 @@ public class BTSpp extends Activity {
 	static final UUID uuid = UUID.fromString(SPP_UUID);
 	static final String tag = "BluetoothSPP";
 	static final boolean D = true;
-	Button discover, send, clear;
+//	Button discover, send, clear;
 	ToggleButton bt_switcher;
 	EditText sendEdit, msgEdit;
 	ListView devList;
@@ -62,9 +58,7 @@ public class BTSpp extends Activity {
 	BluetoothAdapter btAdapt;
 	BluetoothSocket btSocket;
 	InputStream btIn = null;
-	OutputStream btOut = null;
-	
-	SppServer sppServer;
+	OutputStream btOut = null;	
 	
 	boolean sppConnected = false;
 	boolean goBackward = false;
@@ -76,32 +70,23 @@ public class BTSpp extends Activity {
 	
 	private BatteryReceiver mBatteryReceiver;
 	
-	private MediaPlayer mNoiser;
+	private Ringtone mNoiser;
+	private SppReceiver mSppReceiver;
 	
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 //        requestWindowFeature(Window.FEATURE_NO_TITLE);
-        setContentView(R.layout.main);
-        
-        ButtonClick bc = new ButtonClick();
+        setContentView(R.layout.main);        
         
         warning = (TextView) findViewById(R.id.warning);
-        bt_content = findViewById(R.id.bt_content);
-        
+        bt_content = findViewById(R.id.bt_content);        
         
         bt_switcher = (ToggleButton) findViewById(R.id.bluetoothswitch);
-        bt_switcher.setOnClickListener(bc);
-        
-        discover = (Button) findViewById(R.id.discover);
-        discover.setOnClickListener(bc);
-        
-        send = (Button) findViewById(R.id.sendbtn);
-        send.setOnClickListener(bc);
-        
-        clear = (Button) findViewById(R.id.clear);
-        clear.setOnClickListener(bc);
+//        discover = (Button) findViewById(R.id.discover);        
+//        send = (Button) findViewById(R.id.sendbtn);        
+//        clear = (Button) findViewById(R.id.clear);
         
         msgEdit = (EditText) findViewById(R.id.msgedit);
         sendEdit = (EditText) findViewById(R.id.sendedit);        
@@ -115,48 +100,10 @@ public class BTSpp extends Activity {
         registerReceiver(bluetoothReceiver, intent);
         
         btAdapt = BluetoothAdapter.getDefaultAdapter();
-        devAdapter = new ArrayAdapter<String>(this, 
-        		android.R.layout.simple_list_item_1, devices);
+        devAdapter = new DeviceAdapter(this, R.layout.list_item,
+        		R.id.textView1, devices);
         devList = (ListView) findViewById(R.id.btlist);
         devList.setAdapter(devAdapter);		
-		devList.setOnItemClickListener(new OnItemClickListener() {
-
-			@Override
-			public void onItemClick(AdapterView<?> parent, View view,
-					int position, long id) {
-				if (sppConnected) return;
-				btAdapt.cancelDiscovery();
-				String devAddr = ((String)devices.get(position)).split("/-/")[1];
-				try {
-					//创建SPP 的 RfcommSocket, SPP从机
-					btSocket = btAdapt.getRemoteDevice(devAddr)
-								.createRfcommSocketToServiceRecord(uuid);
-					btSocket.connect();
-
-					synchronized (BTSpp.this) {
-						if (sppConnected) return;
-						if (btServerSocket != null) btServerSocket.close();
-						btIn = btSocket.getInputStream();
-						btOut = btSocket.getOutputStream();
-						connected();
-					}
-				} catch (IOException e) {
-					e.printStackTrace();
-					sppConnected = false;
-					try {
-						btSocket.close();
-					} catch (IOException e1) {
-						e1.printStackTrace();
-					}
-					btSocket = null;
-					Toast.makeText(BTSpp.this, "SPP connect error", Toast.LENGTH_SHORT).show();
-				}
-			}
-		});		
-		
-		// SPP服务
-		sppServer = new SppServer();
-		sppServer.start();		
     }
 
     @Override
@@ -214,13 +161,11 @@ public class BTSpp extends Activity {
 //	        super.onDestroy();
 //	        return;
 //	    }
-		if (sppServer != null)
-			sppServer.cancel();
+	    
 	    this.unregisterReceiver(bluetoothReceiver);
 	    if (btIn != null) {
 	    	try {
 	    	    if (btSocket != null) btSocket.close();
-	    		if (btServerSocket != null) btServerSocket.close();
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
@@ -246,50 +191,6 @@ public class BTSpp extends Activity {
             }
 		}
 	};
-	
-
-    class ButtonClick implements View.OnClickListener {
-
-		@Override
-		public void onClick(View v) {
-			switch (v.getId()) {
-			case R.id.discover:
-				btAdapt.cancelDiscovery();
-				btAdapt.startDiscovery();
-				break;
-//			case BTN_DISCOVERABLE:
-//				Intent discoverableIntent = new Intent(
-//						BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
-//				discoverableIntent.putExtra(
-//						BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 100);
-//				startActivity(discoverableIntent);
-//				break;
-			case R.id.bluetoothswitch:
-				if (btAdapt.isEnabled()) {
-					btAdapt.disable();
-				} else {
-					Intent intent = new Intent(
-							BluetoothAdapter.ACTION_REQUEST_ENABLE);
-					startActivity(intent);
-				}
-				break;
-			case R.id.sendbtn:
-				try {
-					btOut.write(sendEdit.getText().toString().getBytes());
-					sendEdit.setText("");
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-				break;
-			case R.id.clear:
-				msgEdit.setText("");
-				break;
-			default: break;
-			}
-		}
-    	
-    }
-    
     
 	private BroadcastReceiver bluetoothReceiver = new BroadcastReceiver() {
 
@@ -332,11 +233,10 @@ public class BTSpp extends Activity {
 		}
 	};
 	
-	private void connected() {
+	private void connect() {
 		sppConnected = true;
-		new SppReceiver(btIn).start();
-		devList.setClickable(false);
-		sppServer = null;
+		mSppReceiver = new SppReceiver(btIn);
+		mSppReceiver.start();
 		
         if(mTelephonyManager == null){
         	mTelephonyManager = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
@@ -351,81 +251,85 @@ public class BTSpp extends Activity {
 
 	private void disconnect() {
 	    sppConnected = false;
-		devList.setClickable(true);
-		btIn = null;
-		btOut = null;
+	    try {
+            btOut.write(new byte[]{});
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+//		try {
+//            btIn.close();
+//            btOut.close();
+//            btSocket.close();
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
 		
 		btHandler.sendEmptyMessage(1);
 	}
 	
-	private byte[] response(byte[]data) {
-		byte[] answer = new byte[]{};
-		if (!"".equals(mIncomingNumber) && data[0] != 3) {
-			try {
-				answer = (mIncomingNumber + " " + getPeople(mIncomingNumber) + " ").getBytes("ASCII");
-			} catch (UnsupportedEncodingException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-			
-		} else {
-			switch (data[0]) {
-			case 0:
-				answer = new byte[]{mBatteryPercent, mSignalStrength, 0};
-				break;
-			case 1:
-		        Time time = new Time();
-		        time.setToNow();
-		        
-		        Log.i(tag, "" + (time.year - 2000));
-		        Log.i(tag, "" + (time.month + 1));
-		        Log.i(tag, "" + time.monthDay);
-		        Log.i(tag, "" + time.hour);
-		        Log.i(tag, "" + time.minute);
-		        Log.i(tag, "" + time.second);
-		        Log.i(tag, "" + (time.weekDay + 1));
-				answer = new byte[7];
-				answer[0] = (byte) (time.year - 2000);
-				answer[1] = (byte) (time.month + 1);
-				answer[2] = (byte) (time.monthDay);
-				answer[3] = (byte) (time.hour);
-				answer[4] = (byte) (time.minute);
-				answer[5] = (byte) (time.second);
-				answer[6] = (byte) (time.weekDay + 1);
-				break;
-			case 2:
-				answer = new byte[]{mBatteryPercent, mSignalStrength, 0};
-				makeNoise();
-				break;
-			case 3:
-				answer = new byte[]{mBatteryPercent, mSignalStrength, 0};
-				endCall();
-				break;			
-			default:
-				break;
-			}			
-		}
-		
-		return answer;
-	}
+    private byte[] response(int answerType) {
+        byte[] answer = null;
+        switch (answerType) {
+            case 0:
+                answer = new byte[] {
+                        (byte) 0xff, 0x02, 0x03, mBatteryPercent, mSignalStrength, 0
+                };
+                break;
+            case 1:
+                Time time = new Time();
+                time.setToNow();
+
+                Log.i(tag, "" + (time.year - 2000));
+                Log.i(tag, "" + (time.month + 1));
+                Log.i(tag, "" + time.monthDay);
+                Log.i(tag, "" + time.hour);
+                Log.i(tag, "" + time.minute);
+                Log.i(tag, "" + time.second);
+                Log.i(tag, "" + (time.weekDay + 1));
+                answer = new byte[10];
+                answer[0] = (byte) 0xff;
+                answer[1] = (byte) 0x03;
+                answer[2] = (byte) 0x07;
+                answer[3] = (byte) (time.year - 2000);
+                answer[4] = (byte) (time.month + 1);
+                answer[5] = (byte) (time.monthDay);
+                answer[6] = (byte) (time.hour);
+                answer[7] = (byte) (time.minute);
+                answer[8] = (byte) (time.second);
+                answer[9] = (byte) (time.weekDay + 1);
+                break;
+            case 2:
+                answer = new byte[] {
+                        (byte) 0xff, 0x02, 0x03, mBatteryPercent, mSignalStrength, 0
+                };
+                makeNoise();
+                break;
+            case 3:
+                answer = new byte[] {
+                        (byte) 0xff, 0x02, 0x03, mBatteryPercent, mSignalStrength, 0
+                };
+                endCall();
+                break;
+            case 4:
+                byte[] part1 = new byte[]{(byte) 0xff, 0x04, 0x00};
+                byte[] part2 = (mIncomingNumber + " " + getPeople(mIncomingNumber) + " ").getBytes();
+                part1[2] = (byte) part2.length;
+                answer = new byte[3 + part2.length];
+                System.arraycopy(part1, 0, answer, 0, part1.length);
+                System.arraycopy(part2, 0, answer, part1.length, part2.length);
+                break;
+        }
+
+        return answer;
+    }
 	
-	private void makeNoise() {
-		Log.i(tag, "need Noise!!!");
-		if(mNoiser != null) return;
-		mNoiser = MediaPlayer.create(this, R.raw.test_cbr);
-		AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-		am.setStreamVolume(AudioManager.STREAM_MUSIC, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0);
-		mNoiser.setLooping(false);
-		mNoiser.start();
-		mNoiser.setOnCompletionListener(new OnCompletionListener() {
-			
-			@Override
-			public void onCompletion(MediaPlayer mp) {
-				mNoiser.release();
-				mNoiser = null;
-			}
-		});
-		
+	private void makeNoise() {	    
+	    if (mNoiser == null) mNoiser = RingtoneManager.getRingtone(this, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE));
+        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        am.setStreamVolume(AudioManager.STREAM_RING,
+                am.getStreamMaxVolume(AudioManager.STREAM_RING), 0);
+        mNoiser.play();
 	}
 	
 	private void endCall() {
@@ -468,57 +372,104 @@ public class BTSpp extends Activity {
         return name;
     }	
 	
-    private BluetoothServerSocket btServerSocket;
-	private class SppServer extends Thread {
-        public SppServer() {        	
-        	try {
-				btServerSocket = btAdapt.listenUsingRfcommWithServiceRecord("SPP", uuid);
-			} catch (IOException e) {
-				e.printStackTrace();
-				btServerSocket = null;
-			}			
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if(keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            if(mNoiser != null && mNoiser.isPlaying()) {
+                mNoiser.stop();
+                return true;
+            }
         }
-        
-        public void run() {
-        	BluetoothSocket bs = null;
-        	if (btServerSocket == null) {
-        		Log.e(tag, "ServerSocket null");
-        		return;
-        	}
-        	
-        	try {
-				bs = btServerSocket.accept();
-				synchronized (BTSpp.this) {
-					if (sppConnected) return;
-					Log.i(tag, "Devices Name: " + bs.getRemoteDevice().getName());
-					btIn = bs.getInputStream();
-					btOut = bs.getOutputStream();
-					connected();
-				}
-			} catch (IOException e) {
-				e.printStackTrace();
-				Log.d(tag, "ServerSoket accept failed");
-			}
-			if (D) Log.i(tag, "End Bluetooth SPP Server");
-        }
-        
-        public void cancel() {
-        	if (btServerSocket == null)
-        		return;
-        	try {
-				btServerSocket.close();
-			} catch (IOException e) {
-				e.printStackTrace();
-				Log.e(tag, "close ServerSocket failed");
-			}
-        }
-        
-	}
+        return super.onKeyDown(keyCode, event);
+    }    
+
+    public void onClick(View v) {
+        switch (v.getId()) {
+        case R.id.discover:
+            btAdapt.cancelDiscovery();
+            btAdapt.startDiscovery();
+            break;
+        case R.id.bluetoothswitch:
+            if (btAdapt.isEnabled()) {
+                btAdapt.disable();
+            } else {
+                Intent intent = new Intent(
+                        BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                startActivity(intent);
+            }
+            break;
+        case R.id.sendbtn:
+            try {
+                btOut.write(sendEdit.getText().toString().getBytes());
+                sendEdit.setText("");
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            break;
+        case R.id.clear:
+            msgEdit.setText("");
+            break;
+        case R.id.noise_stopper:
+            if(mNoiser!=null && mNoiser.isPlaying()) {
+                mNoiser.stop();
+                mNoiser = null;
+            }
+            break;
+        case R.id.toggle_bt_device:
+            ToggleButton toggle = (ToggleButton) v;
+            if(!toggle.isChecked()) {
+                disconnect();
+            } else {
+                btAdapt.cancelDiscovery();
+                if(btSocket != null) {
+                    try {
+                        btSocket.close();
+                        btSocket = null;
+                    } catch (IOException e) {
+                        btSocket = null;
+                        e.printStackTrace();
+                    }
+                }
+                
+                Log.i("unic", "tag:" + ((View) v.getParent()).getTag());
+                String devAddr = ((String)((View) v.getParent()).getTag()).split("/-/")[1];
+                try {
+                    //创建SPP 的 RfcommSocket, SPP从机
+                    btSocket = btAdapt.getRemoteDevice(devAddr)
+                                .createRfcommSocketToServiceRecord(uuid);
+                    btSocket.connect();
+
+                    synchronized (BTSpp.this) {
+                        if (sppConnected) return;
+                        btIn = btSocket.getInputStream();
+                        btOut = btSocket.getOutputStream();
+                        connect();
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    sppConnected = false;
+                    try {
+                        btSocket.close();
+                    } catch (IOException e1) {
+                        e1.printStackTrace();
+                    }
+                    btSocket = null;
+                    Toast.makeText(BTSpp.this, "SPP connect error", Toast.LENGTH_SHORT).show();
+                }
+            
+            }
+            
+            break;              
+        default: break;
+        }            
+    }
+    
 	
 	private class SppReceiver extends Thread {
 		private InputStream input = null;
 		public SppReceiver(InputStream in) {
 			input = in;
+			
 			Log.i(tag, "SppReceiver ");
 		}
 		public void run() {
@@ -528,17 +479,23 @@ public class BTSpp extends Activity {
 				Log.d(tag, "InputStream null");
 				return;
 			}
-			while (true) {
+			while (sppConnected) {
+			    Time t = new Time();
+			    t.setToNow();
+			    Log.i("unic","re" + t.second);
 				try {
 					length = input.read(data);
 					Log.i(tag, "SPP receiver");
 					if (length > 0) {
 						msg = new String(data, 0, length, "ASCII");
-						Log.i(tag, "data=" + data[0]);
+						Log.i(tag, "data[0]=" + data[0]);
+						Log.i(tag, "data=" + data.toString());
 						Log.i(tag, "length=" + length);
-						byte[] answer = response(data);
-						btOut.write(answer);
-						btHandler.sendEmptyMessage(0);
+//						if(data[0]-0xff==0) {
+							byte[] answer = response(data[3]);
+							btOut.write(answer);
+							btHandler.sendEmptyMessage(0);
+//						}
 					}
 				} catch (IOException e) {
 					Log.e(tag, "disconnect");
@@ -559,15 +516,44 @@ public class BTSpp extends Activity {
 			case TelephonyManager.CALL_STATE_RINGING:
 				mIncomingNumber = incomingNumber;
 				Log.i("unic", "ringing-" + mIncomingNumber);
-				getPeople(incomingNumber);
+				
+				if(btOut != null) {
+                    try {
+                        btOut.write(response(4));
+                    } catch (UnsupportedEncodingException e) {
+                        e.printStackTrace();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+				}
 				break;
 			case TelephonyManager.CALL_STATE_OFFHOOK:
 				mIncomingNumber = "";
 				Log.i("unic", "offhook-" + mIncomingNumber);
+				
+                if(btOut != null) {
+                    try {
+                        btOut.write(response(0));
+                    } catch (UnsupportedEncodingException e) {
+                        e.printStackTrace();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }				
 				break;
 			case TelephonyManager.CALL_STATE_IDLE:
-				mIncomingNumber = "";
+				mIncomingNumber = "";				
 				Log.i("unic", "idle-" + mIncomingNumber);
+				
+                if(btOut != null) {
+                    try {
+                        btOut.write(response(0));
+                    } catch (UnsupportedEncodingException e) {
+                        e.printStackTrace();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
 				break;
 			default:
 				break;
