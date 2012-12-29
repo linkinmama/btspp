@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Method;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.UUID;
 
@@ -58,7 +59,7 @@ public class BTSpp extends Activity {
 	BluetoothAdapter btAdapt;
 	BluetoothSocket btSocket;
 	InputStream btIn = null;
-	OutputStream btOut = null;	
+	OutputStream btOut = null;
 	
 	boolean sppConnected = false;
 	boolean goBackward = false;
@@ -109,6 +110,9 @@ public class BTSpp extends Activity {
     @Override
     protected void onResume() {        
         refreshUI(btAdapt.isEnabled());
+        String s = "中国";
+        Log.i(tag, "" + s.getBytes().length);
+        Log.i(tag, "" + s.getBytes()[0]);
         super.onResume();
     }
     
@@ -184,7 +188,11 @@ public class BTSpp extends Activity {
                     break;
                 case 1:
                     mTelephonyManager.listen(new MyPhoneStateListener(), PhoneStateListener.LISTEN_NONE);
-                    unregisterReceiver(mBatteryReceiver);                    
+                    try {
+                        unregisterReceiver(mBatteryReceiver);
+                    } catch (Exception e) {
+                        Log.i(tag, "already unregistered mBatteryReceiver!!!");
+                    }
                     break;
                 default:
                     break;
@@ -251,12 +259,6 @@ public class BTSpp extends Activity {
 
 	private void disconnect() {
 	    sppConnected = false;
-	    try {
-            btOut.write(new byte[]{});
-        } catch (IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
 //		try {
 //            btIn.close();
 //            btOut.close();
@@ -297,7 +299,7 @@ public class BTSpp extends Activity {
                 answer[6] = (byte) (time.hour);
                 answer[7] = (byte) (time.minute);
                 answer[8] = (byte) (time.second);
-                answer[9] = (byte) (time.weekDay + 1);
+                answer[9] = (byte) (time.weekDay);
                 break;
             case 2:
                 answer = new byte[] {
@@ -313,11 +315,17 @@ public class BTSpp extends Activity {
                 break;
             case 4:
                 byte[] part1 = new byte[]{(byte) 0xff, 0x04, 0x00};
-                byte[] part2 = (mIncomingNumber + " " + getPeople(mIncomingNumber) + " ").getBytes();
+                byte[] part2 = mIncomingNumber .getBytes();
+                byte[] part3 = getNameByPhoneNumber(mIncomingNumber).getBytes(Charset.forName(""));
+                
                 part1[2] = (byte) part2.length;
-                answer = new byte[3 + part2.length];
+                answer = new byte[part1.length + part2.length + 1 + part3.length + 1];
+                
                 System.arraycopy(part1, 0, answer, 0, part1.length);
                 System.arraycopy(part2, 0, answer, part1.length, part2.length);
+                System.arraycopy(0x00, 0, answer, part1.length + part2.length, 1);
+                System.arraycopy(part3, 0, answer, part1.length + part2.length + 1, part3.length);
+                System.arraycopy(0x00, 0, answer, part1.length + part2.length + 1 + part3.length, 1);
                 break;
         }
 
@@ -348,7 +356,7 @@ public class BTSpp extends Activity {
 		}
 	}
 	
-    public String getPeople(String incomingNumber) {  
+    public String getNameByPhoneNumber(String incomingNumber) {  
         String[] projection = { ContactsContract.PhoneLookup.DISPLAY_NAME,  
                                 ContactsContract.CommonDataKinds.Phone.NUMBER};  
           
@@ -487,10 +495,6 @@ public class BTSpp extends Activity {
 					length = input.read(data);
 					Log.i(tag, "SPP receiver");
 					if (length > 0) {
-						msg = new String(data, 0, length, "ASCII");
-						Log.i(tag, "data[0]=" + data[0]);
-						Log.i(tag, "data=" + data.toString());
-						Log.i(tag, "length=" + length);
 //						if(data[0]-0xff==0) {
 							byte[] answer = response(data[3]);
 							btOut.write(answer);
@@ -563,7 +567,7 @@ public class BTSpp extends Activity {
 
 		@Override
 		public void onSignalStrengthsChanged(SignalStrength signalStrength) {
-			mSignalStrength = (byte) signalStrength.getGsmSignalStrength();
+			mSignalStrength = (byte) ((int)(signalStrength.getGsmSignalStrength() + 113)/2);//把asu换成dbm
 			Log.i(tag, "signal strength:" + mSignalStrength);
 			super.onSignalStrengthsChanged(signalStrength);
 		}
