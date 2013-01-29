@@ -5,7 +5,10 @@
     <string name="btn_scan_title">搜索蓝牙设备</string>
     <string name="btn_clear_title">clear</string>
     <string name="btn_send_title">send</string>
+    <string name="btn_quit_title">退出</string>    
     <string name="warning">请打开蓝牙！</string>
     <string name="toggle_connect">连接</string>
-    <string name="toggle_disconnect">断开</string>    
+    <string name="toggle_disconnect">断开</string>
+    <string name="unknown_imcomingnumber">未知</string>
+    <string name="connection_failed">连接不成功</string>
 </resources>

@@ -22,7 +22,8 @@
         <activity
             android:name=".BTSpp"
             android:label="@string/app_name"
-            android:screenOrientation="portrait" >
+            android:screenOrientation="portrait"
+            android:alwaysRetainTaskState="true" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

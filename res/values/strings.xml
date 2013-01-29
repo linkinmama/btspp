@@ -5,7 +5,10 @@
     <string name="btn_scan_title">scan bluetooth device</string>
     <string name="btn_clear_title">clear</string>
     <string name="btn_send_title">send</string>
+    <string name="btn_quit_title">quit</string>
     <string name="warning">please turn on the bluetooth</string>
     <string name="toggle_connect">connect</string>
     <string name="toggle_disconnect">disconnect</string>
+    <string name="unknown_imcomingnumber">unknown</string>
+    <string name="connection_failed">connection failed...</string>
 </resources>

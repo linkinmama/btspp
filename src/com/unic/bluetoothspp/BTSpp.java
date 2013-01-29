@@ -12,7 +12,6 @@ import java.util.UUID;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -34,7 +33,6 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.ArrayAdapter;
-import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -47,9 +45,7 @@ public class BTSpp extends Activity {
 	static final UUID uuid = UUID.fromString(SPP_UUID);
 	static final String tag = "BluetoothSPP";
 	static final boolean D = true;
-//	Button discover, send, clear;
 	ToggleButton bt_switcher;
-	EditText sendEdit, msgEdit;
 	ListView devList;
 	TextView warning;
 	View bt_content;
@@ -67,9 +63,7 @@ public class BTSpp extends Activity {
 	private TelephonyManager mTelephonyManager;
 	private byte mSignalStrength = -1;
 	private String mIncomingNumber = "";
-	private byte mBatteryPercent = -1;
-	
-	private BatteryReceiver mBatteryReceiver;
+	private byte mBatteryPercent = -1;	
 	
 	private Ringtone mNoiser;
 	private SppReceiver mSppReceiver;
@@ -78,27 +72,30 @@ public class BTSpp extends Activity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-//        requestWindowFeature(Window.FEATURE_NO_TITLE);
         setContentView(R.layout.main);        
         
         warning = (TextView) findViewById(R.id.warning);
         bt_content = findViewById(R.id.bt_content);        
-        
         bt_switcher = (ToggleButton) findViewById(R.id.bluetoothswitch);
-//        discover = (Button) findViewById(R.id.discover);        
-//        send = (Button) findViewById(R.id.sendbtn);        
-//        clear = (Button) findViewById(R.id.clear);
-        
-        msgEdit = (EditText) findViewById(R.id.msgedit);
-        sendEdit = (EditText) findViewById(R.id.sendedit);        
         
         // 用BroadcastReceiver来取得搜索结果
-        IntentFilter intent = new IntentFilter();
-        intent.addAction(BluetoothDevice.ACTION_FOUND);
-        intent.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
-        intent.addAction(BluetoothAdapter.ACTION_SCAN_MODE_CHANGED);
-        intent.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
-        registerReceiver(bluetoothReceiver, intent);
+        IntentFilter bluetoothFilter = new IntentFilter();
+        bluetoothFilter.addAction(BluetoothDevice.ACTION_FOUND);
+        bluetoothFilter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+        bluetoothFilter.addAction(BluetoothAdapter.ACTION_SCAN_MODE_CHANGED);
+        bluetoothFilter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
+        registerReceiver(bluetoothReceiver, bluetoothFilter);
+        
+        IntentFilter batteryFilter = new IntentFilter();
+        batteryFilter.addAction(Intent.ACTION_BATTERY_CHANGED);
+        registerReceiver(mBatteryReceiver, batteryFilter);
+        
+        if(mTelephonyManager == null){
+            mTelephonyManager = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+        }
+        mTelephonyManager.listen(new MyPhoneStateListener(), PhoneStateListener.LISTEN_CALL_STATE|PhoneStateListener.LISTEN_SIGNAL_STRENGTHS);
+        
+
         
         btAdapt = BluetoothAdapter.getDefaultAdapter();
         devAdapter = new DeviceAdapter(this, R.layout.list_item,
@@ -110,9 +107,6 @@ public class BTSpp extends Activity {
     @Override
     protected void onResume() {        
         refreshUI(btAdapt.isEnabled());
-        String s = "中国";
-        Log.i(tag, "" + s.getBytes().length);
-        Log.i(tag, "" + s.getBytes()[0]);
         super.onResume();
     }
     
@@ -166,7 +160,10 @@ public class BTSpp extends Activity {
 //	        return;
 //	    }
 	    
-	    this.unregisterReceiver(bluetoothReceiver);
+	    mTelephonyManager.listen(new MyPhoneStateListener(), PhoneStateListener.LISTEN_NONE);
+	    unregisterReceiver(bluetoothReceiver);
+	    unregisterReceiver(mBatteryReceiver);
+	    
 	    if (btIn != null) {
 	    	try {
 	    	    if (btSocket != null) btSocket.close();
@@ -174,6 +171,8 @@ public class BTSpp extends Activity {
 				e.printStackTrace();
 			}
 	    }
+	    
+	    sppConnected = false;
 	    super.onDestroy();
 		android.os.Process.killProcess(android.os.Process.myPid());
 	}
@@ -184,90 +183,84 @@ public class BTSpp extends Activity {
 		public void handleMessage(Message m) {
 		    switch (m.what) {
                 case 0:
-                    msgEdit.append(msg + "\n");                    
                     break;
-                case 1:
-                    mTelephonyManager.listen(new MyPhoneStateListener(), PhoneStateListener.LISTEN_NONE);
-                    try {
-                        unregisterReceiver(mBatteryReceiver);
-                    } catch (Exception e) {
-                        Log.i(tag, "already unregistered mBatteryReceiver!!!");
-                    }
+                case 1:                    
                     break;
+                case 2:
+                	if(!lastDevice.equals("")) connect(lastDevice);
+                	break;
                 default:
                     break;
             }
 		}
 	};
-    
-	private BroadcastReceiver bluetoothReceiver = new BroadcastReceiver() {
-
-		public void onReceive(Context context, Intent intent) {
-			String action = intent.getAction();
-			Bundle b = intent.getExtras();
-			Object[] lstName = b.keySet().toArray();
-
-			// 显示所有收到的消息及其细节
-			for (int i = 0; i < lstName.length; i++) {
-				String keyName = lstName[i].toString();
-				Log.i(keyName, String.valueOf(b.get(keyName)));
-			}
-			//搜索设备时，取得设备的MAC地址
-			if (BluetoothDevice.ACTION_FOUND.equals(action)) {
-				BluetoothDevice device = intent
-						.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-				String str = device.getName() + "/-/" + device.getAddress();
-				if (devices.indexOf(str) == -1)// 防止重复添加
-					devices.add(str); // 获取设备名称和mac地址
-				devAdapter.notifyDataSetChanged();
-			} else if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)) {
-			    switch (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, 0)) {
-                    case BluetoothAdapter.STATE_OFF:
-                        bt_switcher.setEnabled(true);
-                        refreshUI(false);                        
-                        break;
-                    case BluetoothAdapter.STATE_ON:
-                        bt_switcher.setEnabled(true);
-                        refreshUI(true);
-                        break;
-                    case BluetoothAdapter.STATE_TURNING_OFF:
-                    case BluetoothAdapter.STATE_TURNING_ON:
-                        bt_switcher.setEnabled(false);                        
-                        break;                        
-                    default:
-                        break;
-                }
-			}
-		}
-	};
 	
-	private void connect() {
-		sppConnected = true;
-		mSppReceiver = new SppReceiver(btIn);
-		mSppReceiver.start();
-		
-        if(mTelephonyManager == null){
-        	mTelephonyManager = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+	private void connect(String devAddr) {
+
+        if(btAdapt.isDiscovering()) {
+            btAdapt.cancelDiscovery();
         }
-        mTelephonyManager.listen(new MyPhoneStateListener(), PhoneStateListener.LISTEN_CALL_STATE|PhoneStateListener.LISTEN_SIGNAL_STRENGTHS);
         
-        if(mBatteryReceiver == null) mBatteryReceiver = new BatteryReceiver();
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(Intent.ACTION_BATTERY_CHANGED);
-        registerReceiver(mBatteryReceiver, filter);
+        if(btSocket != null) {
+            try {
+                btSocket.close();
+                btSocket = null;
+            } catch (IOException e) {
+                btSocket = null;
+                e.printStackTrace();
+            }
+        }
+        
+        lastAnswerTime = -1;
+
+        try {
+            //创建SPP 的 RfcommSocket, SPP从机
+            btSocket = btAdapt.getRemoteDevice(devAddr)
+                        .createRfcommSocketToServiceRecord(uuid);
+            btSocket.connect();
+            
+
+            synchronized (BTSpp.this) {
+                btIn = btSocket.getInputStream();
+                btOut = btSocket.getOutputStream();
+                
+                sppConnected = true;
+                mSppReceiver = new SppReceiver(btIn);
+                mSppReceiver.start();
+                
+                new ReConnector().start();
+            }
+            
+            lastDevice = devAddr;
+        } catch (IOException e) {
+            Log.e("unic", "error when connecting");
+            
+            try {
+                btSocket.close();
+            } catch (IOException e1) {
+                e1.printStackTrace();
+                Log.e("unic", "error when btSocket.close()");
+            }
+            btSocket = null;
+            Toast.makeText(BTSpp.this, getString(R.string.connection_failed), Toast.LENGTH_SHORT).show();
+            btHandler.sendEmptyMessageDelayed(2, 5000);
+        }
 	}
 
-	private void disconnect() {
-	    sppConnected = false;
-//		try {
-//            btIn.close();
-//            btOut.close();
-//            btSocket.close();
-//        } catch (IOException e) {
-//            e.printStackTrace();
-//        }
-		
-		btHandler.sendEmptyMessage(1);
+	private void disconnect(boolean isByUser) {
+		if(isByUser) {
+			sppConnected = false;
+			if(btSocket != null ) {
+				try {
+					btSocket.close();
+					btSocket = null;
+					lastAnswerTime = -1;
+					Log.i("unic", "btSocket closed");
+				} catch (IOException e) {
+					Log.i("unic", "error when btSocket closing");
+				}
+			}			
+		}
 	}
 	
     private byte[] response(int answerType) {
@@ -303,29 +296,40 @@ public class BTSpp extends Activity {
                 break;
             case 2:
                 answer = new byte[] {
-                        (byte) 0xff, 0x02, 0x03, mBatteryPercent, mSignalStrength, 0
+                        (byte) 0xff, 0x02, 0x03, mBatteryPercent, mSignalStrength, 2
                 };
                 makeNoise();
                 break;
             case 3:
                 answer = new byte[] {
-                        (byte) 0xff, 0x02, 0x03, mBatteryPercent, mSignalStrength, 0
+                        (byte) 0xff, 0x02, 0x03, mBatteryPercent, mSignalStrength, 3
                 };
                 endCall();
                 break;
             case 4:
                 byte[] part1 = new byte[]{(byte) 0xff, 0x04, 0x00};
-                byte[] part2 = mIncomingNumber .getBytes();
-                byte[] part3 = getNameByPhoneNumber(mIncomingNumber).getBytes(Charset.forName(""));
+                byte[] part2 = mIncomingNumber .getBytes(Charset.forName("GBK"));
+                if (part2.length > 20) {
+                    byte[] temp = new byte[20];
+                    System.arraycopy(part2, 0, temp, 0, 20);
+                    part2 = temp;
+                }
+                
+                byte[] part3 = getNameByPhoneNumber(mIncomingNumber).getBytes(Charset.forName("GBK"));
+                if (part3.length > 12) {
+                    byte[] temp = new byte[12];
+                    System.arraycopy(part3, 0, temp, 0, 12);
+                    part3 = temp;
+                }
                 
                 part1[2] = (byte) part2.length;
                 answer = new byte[part1.length + part2.length + 1 + part3.length + 1];
                 
                 System.arraycopy(part1, 0, answer, 0, part1.length);
                 System.arraycopy(part2, 0, answer, part1.length, part2.length);
-                System.arraycopy(0x00, 0, answer, part1.length + part2.length, 1);
+                System.arraycopy(new byte[]{0x00}, 0, answer, part1.length + part2.length, 1);
                 System.arraycopy(part3, 0, answer, part1.length + part2.length + 1, part3.length);
-                System.arraycopy(0x00, 0, answer, part1.length + part2.length + 1 + part3.length, 1);
+                System.arraycopy(new byte[]{0x00}, 0, answer, part1.length + part2.length + 1 + part3.length, 1);
                 break;
         }
 
@@ -366,12 +370,12 @@ public class BTSpp extends Activity {
                 ContactsContract.CommonDataKinds.Phone.NUMBER + " = '" + incomingNumber + "'", // WHERE clause.  
                 null,          // WHERE clause value substitution  
                 null);   // Sort order.  
-  
-        if( cursor == null ) {  
-            Log.i(tag, "getPeople null");  
-            return "";  
-        }  
-        Log.i(tag, "getPeople cursor.getCount() = " + cursor.getCount());  
+        
+        Log.i(tag, "getPeople cursor.getCount() = " + cursor.getCount());
+        if(cursor.getCount() == 0) {
+            cursor.close();
+            return getString(R.string.unknown_imcomingnumber);
+        }
         cursor.moveToPosition(0);          
         int nameFieldColumnIndex = cursor.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME);     
         String name = cursor.getString(nameFieldColumnIndex);
@@ -388,13 +392,17 @@ public class BTSpp extends Activity {
                 return true;
             }
         }
-        return super.onKeyDown(keyCode, event);
+        
+        if(keyCode == KeyEvent.KEYCODE_BACK) {
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
     }    
 
     public void onClick(View v) {
         switch (v.getId()) {
         case R.id.discover:
-            btAdapt.cancelDiscovery();
+            if(btAdapt.isDiscovering()) btAdapt.cancelDiscovery();
             btAdapt.startDiscovery();
             break;
         case R.id.bluetoothswitch:
@@ -406,17 +414,6 @@ public class BTSpp extends Activity {
                 startActivity(intent);
             }
             break;
-        case R.id.sendbtn:
-            try {
-                btOut.write(sendEdit.getText().toString().getBytes());
-                sendEdit.setText("");
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            break;
-        case R.id.clear:
-            msgEdit.setText("");
-            break;
         case R.id.noise_stopper:
             if(mNoiser!=null && mNoiser.isPlaying()) {
                 mNoiser.stop();
@@ -426,49 +423,21 @@ public class BTSpp extends Activity {
         case R.id.toggle_bt_device:
             ToggleButton toggle = (ToggleButton) v;
             if(!toggle.isChecked()) {
-                disconnect();
+                disconnect(true);
+                lastDevice = "";                
             } else {
-                btAdapt.cancelDiscovery();
-                if(btSocket != null) {
-                    try {
-                        btSocket.close();
-                        btSocket = null;
-                    } catch (IOException e) {
-                        btSocket = null;
-                        e.printStackTrace();
-                    }
-                }
-                
                 Log.i("unic", "tag:" + ((View) v.getParent()).getTag());
-                String devAddr = ((String)((View) v.getParent()).getTag()).split("/-/")[1];
-                try {
-                    //创建SPP 的 RfcommSocket, SPP从机
-                    btSocket = btAdapt.getRemoteDevice(devAddr)
-                                .createRfcommSocketToServiceRecord(uuid);
-                    btSocket.connect();
-
-                    synchronized (BTSpp.this) {
-                        if (sppConnected) return;
-                        btIn = btSocket.getInputStream();
-                        btOut = btSocket.getOutputStream();
-                        connect();
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    sppConnected = false;
-                    try {
-                        btSocket.close();
-                    } catch (IOException e1) {
-                        e1.printStackTrace();
-                    }
-                    btSocket = null;
-                    Toast.makeText(BTSpp.this, "SPP connect error", Toast.LENGTH_SHORT).show();
-                }
-            
+                String devAddr = ((String)((View) v.getParent()).getTag()).split("/-/")[1];                
+                connect(devAddr);
+                
             }
             
-            break;              
-        default: break;
+            break;
+        case R.id.quitbtn:
+            finish();
+            break;            
+        default: 
+            break;
         }            
     }
     
@@ -476,9 +445,7 @@ public class BTSpp extends Activity {
 	private class SppReceiver extends Thread {
 		private InputStream input = null;
 		public SppReceiver(InputStream in) {
-			input = in;
-			
-			Log.i(tag, "SppReceiver ");
+			input = in;			
 		}
 		public void run() {
 			byte[] data = new byte[1024];
@@ -488,29 +455,56 @@ public class BTSpp extends Activity {
 				return;
 			}
 			while (sppConnected) {
-			    Time t = new Time();
-			    t.setToNow();
-			    Log.i("unic","re" + t.second);
 				try {
 					length = input.read(data);
-					Log.i(tag, "SPP receiver");
-					if (length > 0) {
-//						if(data[0]-0xff==0) {
-							byte[] answer = response(data[3]);
-							btOut.write(answer);
-							btHandler.sendEmptyMessage(0);
-//						}
+					for(int i = 0;i<length;i++) {
+					    Log.i("unic", "SPP receiver:" + data[i]);
+					}
+//					Log.i("unic", "SPP receiver:" + data);
+					if (length == 5 && dataCheckPassed(data)) {
+						byte[] answer = response(data[3]);
+						btOut.write(answer);
 					}
 				} catch (IOException e) {
-					Log.e(tag, "disconnect");
-					disconnect();
+					Log.e("unic", "disconnect");
 					return;
 				}
 			}
 		}
 	}
 	
-	private String msg = "";
+    private class ReConnector extends Thread {
+        public ReConnector() {
+        }
+        public void run() {
+            while (sppConnected) {
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                
+                if(lastAnswerTime != -1 && System.currentTimeMillis() - lastAnswerTime > 30000) {                    
+                    Log.i("unic", lastDevice);
+                    btHandler.sendEmptyMessage(2);
+                    return;
+                    
+                }
+            }
+        }
+    }	
+	
+    private boolean dataCheckPassed(byte[] data) {
+        if(data[4] == (data[0] + data[1] + data[2] + data[3]) % 0xff) {
+            lastAnswerTime = System.currentTimeMillis();
+            Log.i(tag, "lastAnswerTime:" + lastAnswerTime);
+            return true;
+        }
+        return false;
+    }
+	
+    private long lastAnswerTime = -1;
+	private String lastDevice ="";
 	
 	private class MyPhoneStateListener extends PhoneStateListener {
 
@@ -521,7 +515,7 @@ public class BTSpp extends Activity {
 				mIncomingNumber = incomingNumber;
 				Log.i("unic", "ringing-" + mIncomingNumber);
 				
-				if(btOut != null) {
+				if(btOut != null && sppConnected) {
                     try {
                         btOut.write(response(4));
                     } catch (UnsupportedEncodingException e) {
@@ -535,7 +529,7 @@ public class BTSpp extends Activity {
 				mIncomingNumber = "";
 				Log.i("unic", "offhook-" + mIncomingNumber);
 				
-                if(btOut != null) {
+                if(btOut != null && sppConnected) {
                     try {
                         btOut.write(response(0));
                     } catch (UnsupportedEncodingException e) {
@@ -549,7 +543,7 @@ public class BTSpp extends Activity {
 				mIncomingNumber = "";				
 				Log.i("unic", "idle-" + mIncomingNumber);
 				
-                if(btOut != null) {
+                if(btOut != null && sppConnected) {
                     try {
                         btOut.write(response(0));
                     } catch (UnsupportedEncodingException e) {
@@ -567,21 +561,64 @@ public class BTSpp extends Activity {
 
 		@Override
 		public void onSignalStrengthsChanged(SignalStrength signalStrength) {
-			mSignalStrength = (byte) ((int)(signalStrength.getGsmSignalStrength() + 113)/2);//把asu换成dbm
+			mSignalStrength = (byte) ((int)(signalStrength.getGsmSignalStrength()*2 - 113));//把asu换成dbm
 			Log.i(tag, "signal strength:" + mSignalStrength);
 			super.onSignalStrengthsChanged(signalStrength);
 		}
 	}
 	
 	
-	private class BatteryReceiver extends BroadcastReceiver {
-		@Override
-		public void onReceive(Context context, Intent intent) {
-			int current = intent.getExtras().getInt("level");// 获得当前电量
-			int total = intent.getExtras().getInt("scale");// 获得总电量
-			int percent = current * 100 / total;
-			mBatteryPercent = (byte) percent;
-			Log.i(tag, "battery:" + mBatteryPercent);
-		}
-	}
+   private BroadcastReceiver bluetoothReceiver = new BroadcastReceiver() {
+
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            Bundle b = intent.getExtras();
+            Object[] lstName = b.keySet().toArray();
+
+            // 显示所有收到的消息及其细节
+            for (int i = 0; i < lstName.length; i++) {
+                String keyName = lstName[i].toString();
+                Log.i(keyName, String.valueOf(b.get(keyName)));
+            }
+            //搜索设备时，取得设备的MAC地址
+            if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                BluetoothDevice device = intent
+                        .getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                String str = device.getName() + "/-/" + device.getAddress();
+                if (devices.indexOf(str) == -1)// 防止重复添加
+                    devices.add(str); // 获取设备名称和mac地址
+                devAdapter.notifyDataSetChanged();
+            } else if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)) {
+                switch (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, 0)) {
+                    case BluetoothAdapter.STATE_OFF:
+                        bt_switcher.setEnabled(true);
+                        refreshUI(false);                        
+                        break;
+                    case BluetoothAdapter.STATE_ON:
+                        bt_switcher.setEnabled(true);
+                        refreshUI(true);
+                        break;
+                    case BluetoothAdapter.STATE_TURNING_OFF:
+                    case BluetoothAdapter.STATE_TURNING_ON:
+                        bt_switcher.setEnabled(false);                        
+                        break;                        
+                    default:
+                        break;
+                }
+            }
+        }
+    };
+	
+	private BroadcastReceiver mBatteryReceiver = new BroadcastReceiver() {
+        
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            int current = intent.getExtras().getInt("level");// 获得当前电量
+            int total = intent.getExtras().getInt("scale");// 获得总电量
+            int percent = current * 100 / total;
+            mBatteryPercent = (byte) percent;
+            Log.i(tag, "battery:" + mBatteryPercent);
+            
+        }
+    };
 }
