@@ -78,7 +78,7 @@ public class BTSpp extends Activity {
         bt_content = findViewById(R.id.bt_content);        
         bt_switcher = (ToggleButton) findViewById(R.id.bluetoothswitch);
         
-        // ÓÃBroadcastReceiverÀ´È¡µÃËÑË÷½á¹û
+     // ç”¨BroadcastReceiveræ¥å–å¾—æœç´¢ç»“æœ
         IntentFilter bluetoothFilter = new IntentFilter();
         bluetoothFilter.addAction(BluetoothDevice.ACTION_FOUND);
         bluetoothFilter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
@@ -207,14 +207,14 @@ public class BTSpp extends Activity {
                 btSocket = null;
             } catch (IOException e) {
                 btSocket = null;
-                e.printStackTrace();
+                Log.i("unic", "error when closing btSocket");
             }
         }
         
         lastAnswerTime = -1;
 
         try {
-            //´´½¨SPP µÄ RfcommSocket, SPP´Ó»ú
+        	//åˆ›å»ºSPP çš„ RfcommSocket, SPPä»æœº
             btSocket = btAdapt.getRemoteDevice(devAddr)
                         .createRfcommSocketToServiceRecord(uuid);
             btSocket.connect();
@@ -457,6 +457,7 @@ public class BTSpp extends Activity {
 			while (sppConnected) {
 				try {
 					length = input.read(data);
+					Log.i("unic", "length=" + length);
 					for(int i = 0;i<length;i++) {
 					    Log.i("unic", "SPP receiver:" + data[i]);
 					}
@@ -561,7 +562,7 @@ public class BTSpp extends Activity {
 
 		@Override
 		public void onSignalStrengthsChanged(SignalStrength signalStrength) {
-			mSignalStrength = (byte) ((int)(signalStrength.getGsmSignalStrength()*2 - 113));//°Ñasu»»³Édbm
+			mSignalStrength = (byte) ((int)(signalStrength.getGsmSignalStrength()*2 - 113));//ï¿½ï¿½asuï¿½ï¿½ï¿½ï¿½dbm
 			Log.i(tag, "signal strength:" + mSignalStrength);
 			super.onSignalStrengthsChanged(signalStrength);
 		}
@@ -575,18 +576,18 @@ public class BTSpp extends Activity {
             Bundle b = intent.getExtras();
             Object[] lstName = b.keySet().toArray();
 
-            // ÏÔÊ¾ËùÓĞÊÕµ½µÄÏûÏ¢¼°ÆäÏ¸½Ú
+         // æ˜¾ç¤ºæ‰€æœ‰æ”¶åˆ°çš„æ¶ˆæ¯åŠå…¶ç»†èŠ‚
             for (int i = 0; i < lstName.length; i++) {
                 String keyName = lstName[i].toString();
                 Log.i(keyName, String.valueOf(b.get(keyName)));
             }
-            //ËÑË÷Éè±¸Ê±£¬È¡µÃÉè±¸µÄMACµØÖ·
+          //æœç´¢è®¾å¤‡æ—¶ï¼Œå–å¾—è®¾å¤‡çš„MACåœ°å€
             if (BluetoothDevice.ACTION_FOUND.equals(action)) {
                 BluetoothDevice device = intent
                         .getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 String str = device.getName() + "/-/" + device.getAddress();
-                if (devices.indexOf(str) == -1)// ·ÀÖ¹ÖØ¸´Ìí¼Ó
-                    devices.add(str); // »ñÈ¡Éè±¸Ãû³ÆºÍmacµØÖ·
+                if (devices.indexOf(str) == -1)// é˜²æ­¢é‡å¤æ·»åŠ 
+                	devices.add(str); // è·å–è®¾å¤‡åç§°å’Œmacåœ°å€
                 devAdapter.notifyDataSetChanged();
             } else if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)) {
                 switch (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, 0)) {
@@ -613,8 +614,8 @@ public class BTSpp extends Activity {
         
         @Override
         public void onReceive(Context context, Intent intent) {
-            int current = intent.getExtras().getInt("level");// »ñµÃµ±Ç°µçÁ¿
-            int total = intent.getExtras().getInt("scale");// »ñµÃ×ÜµçÁ¿
+            int current = intent.getExtras().getInt("level");// è·å¾—å½“å‰ç”µé‡
+            int total = intent.getExtras().getInt("scale");// è·å¾—æ€»ç”µé‡
             int percent = current * 100 / total;
             mBatteryPercent = (byte) percent;
             Log.i(tag, "battery:" + mBatteryPercent);
